@@ -694,8 +694,7 @@ class Analysis:
         
         if type == "xdif":
         
-            #im = ax.imshow(self.xdif, cmap = 'RdYlGn')
-            print('hello')
+            im = ax.imshow(self.xdif, cmap = 'RdYlGn')
 
         else:
             print("Analysis::plot BAD plot type selected. type=", type)
