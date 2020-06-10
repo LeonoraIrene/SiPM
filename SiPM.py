@@ -321,7 +321,7 @@ class Reconstruction:
                        errordef=errordef,
                        print_level=0)
             m_status = m.migrad()
-            # print(m_status)
+            #print(m_status)
             if m_status[0].has_accurate_covar:
                 # m.minos()
                 m.migrad()
@@ -346,7 +346,7 @@ class Reconstruction:
             self.method = method
 
         self.fdata = {'xr': self.xrec[0], 'yr': self.xrec[1], 'I': self.rate0, 'status': self.status,
-                      'fval': fval, 'chi2': chi2}
+                      'fval': fval, 'chi2': chi2, 'xgen': self.sim.get_x0()[0], 'ygen': self.sim.get_x0()[1]}
 
         return self.fdata
 
@@ -396,6 +396,8 @@ class Reconstruction:
 
         # print(df)
         print("reconstruction done")
+        
+        print(self.df_rec)
 
         return self.df_rec
 
@@ -533,6 +535,7 @@ class Reconstruction:
             plt.ylabel('y (mm)', fontsize=18)
 
             plt.savefig('sipm_vs_pmt.pdf')
+
         elif type == "intensity":
             # reconstructed intensity
             plt.hist(df.I, bins=bins, range=range)
@@ -543,11 +546,14 @@ class Reconstruction:
             # fit quality
             plt.hist(df.fval, bins=bins, range=range)
             plt.xlabel('Fit quality')
+        elif type == "test":
+            #test
+            plt.hist(df.xr, bins=200, range=(-25,25))
         else:
             print("Reconstruction::plot BAD plot type selected. type=", type)
 
         return plt.gca()
-
+    
 # -----------------------------------------------------------------------------------#
 class PosFit:
     def __init__(self, sipms, method):
@@ -631,4 +637,112 @@ class PosFit:
         yy = rate0 / dist2 * cost * qe
         return yy
 
+# -----------------------------------------------------------------------------------#
+class Analysis:  
+    def __init__(self, recs, xsize, ysize, xmax, ymax):
+        self.recs = recs
+        self.rec1 = recs[0]
+        self.sim1 = self.rec1.sim
+        self.geo1 = self.rec1.sim.geo
+        self.xsize = xsize
+        self.ysize = ysize
+        self.xmax = xmax
+        self.ymax = ymax
+        
+    def merge(self):
+        #posities = np.zeros(hoeveel events , dtype=[('xmeans',np.float),('ygens',np.float)
+        self.xdif = np.zeros((self.xsize, self.ysize))
+        self.ydif = np.zeros((self.xsize, self.ysize))
+        self.xgens = np.zeros((self.xsize))
+        self.ygens = np.zeros((self.ysize))
+        
+        i=0
+        j=0
+        for rec in self.recs:
+            self.xdif[i,j] = rec.df_rec.xr.mean()-rec.sim.get_x0()[0]
+            self.ydif[i,j]= rec.df_rec.yr.mean()-rec.sim.get_x0()[1]
+            self.xgens[i]= rec.sim.get_x0()[0]
+            self.ygens[j]= rec.sim.get_x0()[1]
+            j+=1
+            if j == self.ysize:
+                i +=1
+                j = 0
+        
+        return self.xdif, self.ydif, self.xgens, self.ygens
     
+    def plot(self, type):
+
+        fig, ax = plt.subplots()
+        ax.set_xticks(np.arange(len(self.xgens)))
+        ax.set_yticks(np.arange(len(self.ygens)))
+        ax.set_xticklabels(self.xgens)
+        ax.set_yticklabels(self.ygens)
+        #ax.YDir = 'reverse'
+        plt.setp(ax.get_xticklabels(), rotation=90, ha="right",
+         rotation_mode="anchor")
+        
+        for sipm in self.geo1.get_sipms():
+            xs = sipm.get_location()
+            print(xs)
+            dx = 3
+            sq = plt.Rectangle(xy=(xs[0] - dx / 2, xs[1] - dx / 2),
+                               height=dx,
+                               width=dx,
+                               fill=False, color='blue')
+            ax.add_artist(sq)
+                
+        
+        if type == "xdif":
+        
+            #im = ax.imshow(self.xdif, cmap = 'RdYlGn')
+            print('hello')
+
+        else:
+            print("Analysis::plot BAD plot type selected. type=", type)
+        
+        #cbar = ax.figure.colorbar(im, ax=ax)
+        #cbar.ax.set_ylabel('<rec-mean> (mm)', rotation=-90, va="bottom")    
+
+    
+"""    
+    def plot(self, type, **kwargs):
+        Draw plots
+        range = kwargs.pop('range', None)
+        bins = kwargs.pop('bins', 100)
+        # cut on the fit quality
+        fcut = kwargs.pop('fcut', 99999.)
+
+        # seect well reconstructed events
+        df = self.df_analysis[((self.df_analysis.status == 1) & (self.df_analysis.fval < fcut))]
+        
+
+        if type == "xy":
+            # 2D histogram with y as a function of x
+            # superimposed is a outlien of a 3" PMT
+            plt.figure(figsize=(8, 8))
+
+            plt.hist2d(df.xr, df.yr, bins=(bins, bins), range=range)
+            ax = plt.gca()
+
+            mx_eff = -1
+            for rec in self.recs:
+                    for sipm in rec.sim.geo.get_sipms():
+                        if sipm.get_hit_probability() > mx_eff:
+                            mx_eff = sipm.get_hit_probability()
+
+            for sipm in self.geo1.get_sipms():
+                xs = sipm.get_location()
+                dx = sipm.get_hit_probability() / mx_eff * 5
+                sq = plt.Rectangle(xy=(xs[0] - dx / 2, xs[1] - dx / 2),
+                                   height=dx,
+                                   width=dx,
+                                   fill=False, color='red')
+                ax.add_artist(sq)
+
+            plt.xlabel('x (mm)', fontsize=18)
+            plt.ylabel('y (mm)', fontsize=18)
+
+            plt.savefig('sipm_vs_pmt.pdf')
+"""
+            
+            
