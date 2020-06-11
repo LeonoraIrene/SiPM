@@ -260,6 +260,157 @@ class Simulator:
             s = 0
         return s
 
+#-------------------------------------------------------------------------------------------------#
+
+class SimulatorLXe:
+    """Simulation of SiPM acceptance"""
+
+    def __init__(self, geo, uv_position, n_mc):
+        self.n_mc = n_mc
+
+        self.cost_range = [np.cos(0), np.cos(np.pi)]
+        self.phi_range = [0, 2 * np.pi]
+        # x0 of the UV photons
+        self.x0 = np.array(uv_position)
+        self.tdir = np.zeros(3)
+
+        self.h_cost, self.h_cost_bins = np.histogram([], bins=1000, range=[-1.1, 1.1])
+        self.h_cost_tmp = []
+        # in order to alllocate new memory locations for lists inside geometry
+        self.geo = deepcopy(geo)
+
+    def get_x0(self):
+        return self.x0
+
+    def set_nmc(self, n_mc):
+        self.n_mc = n_mc
+
+    def Print(self):
+        print("Number of SiPMs = ", len(self.geo.get_sipms()), " Generated hits from x=", self.get_x0())
+        n = 0
+        for pm in self.geo.get_sipms():
+            print("%2d  (x,y,z) = (%4.1f, %4.1f, %4.1f) p(hit) = %7.5f  qe = %5.3f" %
+                  (n, pm.get_location()[0], pm.get_location()[1], pm.get_location()[2], pm.get_hit_probability(),
+                   pm.get_qe()))
+            n = n + 1
+
+    def generate_events(self):
+        """ Generate events
+
+            Photon trajectories are intersected with:
+                1. a cylinder centered around (x,y) = (0,0) with radius r_cylinder. Currently only one
+                cylinder is alllowed
+                2. a plane a fixed height z=z_plane. Only one plane is alllowed.
+
+            NOTE: It is assumed that all SiPMs are either located on the surface of the cylinder or in the plane
+        """
+        for sipm in self.geo.get_sipms():
+            sipm.nhit = 0
+        # n_mc events are generated
+        for i in range(self.n_mc):
+            if i % 100000 == 0:
+                print("generated ", i, " events")
+                self.fill_hist()
+
+            # generate a single UV photon
+            self.generate_uv()
+
+            # intersect with plane
+            s_plane = self.intersect_with_plane()
+            # intersect with cylinder
+            s_cylinder = self.intersect_with_cylinder()
+
+            # coordinates of intersection with plane
+            self.xint_plane = self.x0 + np.multiply(s_plane, self.tdir)
+            # coordinates of intersection with cylinder
+            self.xint_cylinder = self.x0 + np.multiply(s_cylinder, self.tdir)
+
+            # check if the UV photon hits a SiPM
+            for sipm in self.geo.get_sipms():
+                self.hit_sipm(sipm)
+
+        # calculate the hit probabilities
+        for sipm in self.geo.get_sipms():
+            p = sipm.get_number_of_hits() / self.n_mc
+            # correct for the quantum efficiency
+            p = p * sipm.qe
+            sipm.set_hit_probability(p)
+
+        self.Print()
+        self.fill_hist()
+        print("event generation done")
+
+    def fill_hist(self):
+        # cos theta distribution
+        htemp, dummy = np.histogram(self.h_cost_tmp, bins=1000, range=[-1.1, 1.1])
+        self.h_cost = self.h_cost + htemp
+        self.h_cost_tmp = []
+
+    def generate_uv(self):
+        """ Generate a UV photon with random direction. The starting position
+            of the photon is always the same (within this class)
+        """
+        cost = np.random.uniform(self.cost_range[0], self.cost_range[1])
+        sint = np.sqrt(1 - cost ** 2)
+        phi = np.random.uniform(self.phi_range[0], self.phi_range[1])
+        self.tdir = [np.cos(phi) * sint, np.sin(phi) * sint, cost]
+        # histogramming
+        self.h_cost_tmp.append(self.tdir[2])
+
+    def hit_sipm(self, sipm):
+        """ Calculate whether a track hits a SiPM.
+            If the SiPM is hit the number of hits is incremented.
+        """
+        x = [0, 0, 0]
+        if sipm.get_type() == "plane":
+            x = self.xint_plane
+        elif sipm.get_type() == "cylinder":
+            x = self.xint_cylinder
+        else:
+            print("Simulator::hit_sipm ERROR wrong sipm type found. sipm.get_type() =", sipm.get_type())
+
+        dx = np.linalg.norm(x - sipm.get_location())
+        if dx < self.geo.r_sipm:
+            sipm.nhit = sipm.nhit + 1
+
+    def intersect_with_cylinder(self):
+        """ calculate intersect of UV photon with cylinder -
+            Return the positive path length s+ """
+        s = 0
+
+        A = self.tdir[0] ** 2 + self.tdir[1] ** 2
+        B = 2 * (self.x0[0] * self.tdir[0] + self.x0[1] * self.tdir[1])
+        C = self.x0[0] ** 2 + self.x0[1] ** 2 - self.geo.r_cylinder ** 2
+
+        # print("tdir = ",self.tdir, " |tdir|=",np.linalg.norm(self.tdir))
+        # print("x0   = ",self.x0, " |x0|=",np.linalg.norm(self.x0))
+        # print("Rcyl = ",self.geo.r_cylinder," A =",A," B=",B," C=",C," B2-4AC =",B**2-4*A*C)
+
+        discriminant = B ** 2 - 4 * A * C;
+
+        if discriminant >= 0:
+            s0 = (-B + np.sqrt(discriminant)) / (2 * A)
+            s1 = (-B - np.sqrt(discriminant)) / (2 * A)
+
+            if s0 > s1:
+                s = s0
+            else:
+                s = s1
+
+        return s
+
+    def intersect_with_plane(self):
+        """ calculate intersect of UV photon with pllane -
+            Return the positive path length s+ """
+        if np.linalg.norm(self.tdir) > 1e-10:
+            s = (self.geo.z_plane - self.x0[2]) / self.tdir[2]
+        else:
+            s = 0
+        # only positive directions
+        if s < 0:
+            s = 0
+        return s
+
 # -----------------------------------------------------------------------------------#
 class Reconstruction:
     def __init__(self, sim):
@@ -653,6 +804,8 @@ class Analysis:
         #posities = np.zeros(hoeveel events , dtype=[('xmeans',np.float),('ygens',np.float)
         self.xdif = np.zeros((self.xsize, self.ysize))
         self.ydif = np.zeros((self.xsize, self.ysize))
+        self.xsig = np.zeros((self.xsize, self.ysize))
+        self.ysig = np.zeros((self.xsize, self.ysize))
         self.xgens = np.zeros((self.xsize))
         self.ygens = np.zeros((self.ysize))
         
@@ -660,88 +813,63 @@ class Analysis:
         j=0
         for rec in self.recs:
             self.xdif[i,j] = rec.df_rec.xr.mean()-rec.sim.get_x0()[0]
-            self.ydif[i,j]= rec.df_rec.yr.mean()-rec.sim.get_x0()[1]
-            self.xgens[i]= rec.sim.get_x0()[0]
-            self.ygens[j]= rec.sim.get_x0()[1]
+            self.ydif[i,j] = rec.df_rec.yr.mean()-rec.sim.get_x0()[1]
+            self.xgens[i] = rec.sim.get_x0()[0]
+            self.ygens[j] = rec.sim.get_x0()[1]
+            self.xsig[i,j] = rec.df_rec.xr.sem()
+            self.ysig[i,j] = rec.df_rec.yr.sem()
             j+=1
             if j == self.ysize:
                 i +=1
                 j = 0
         
-        return self.xdif, self.ydif, self.xgens, self.ygens
+        return self.xdif, self.ydif, self.xgens, self.ygens, self.xsig, self.ysig
     
     def plot(self, type):
+        
+        """changes still to be made: 
+            -add sipm location on plot
+            -colour scale standard over all plots (for comparison)
+            """
 
         fig, ax = plt.subplots()
         ax.set_xticks(np.arange(len(self.xgens)))
         ax.set_yticks(np.arange(len(self.ygens)))
         ax.set_xticklabels(self.xgens)
         ax.set_yticklabels(self.ygens)
-        #ax.YDir = 'reverse'
+        ax.set_xlabel("generated x-position")
+        ax.set_ylabel("generated y-position")
         plt.setp(ax.get_xticklabels(), rotation=90, ha="right",
          rotation_mode="anchor")
-        
-        for sipm in self.geo1.get_sipms():
-            xs = sipm.get_location()
-            print(xs)
-            dx = 3
-            sq = plt.Rectangle(xy=(xs[0] - dx / 2, xs[1] - dx / 2),
-                               height=dx,
-                               width=dx,
-                               fill=False, color='blue')
-            ax.add_artist(sq)
-                
+               
         
         if type == "xdif":
         
             im = ax.imshow(self.xdif, cmap = 'RdYlGn')
-
+            ax.set_title("Reconstructed - generated x-position")
+            
+        elif type == "ydif":
+        
+            im = ax.imshow(self.ydif, cmap = 'RdYlGn')
+            ax.set_title("Reconstructed - generated y-position")
+            
+        elif type == "xsig":
+        
+            im = ax.imshow(self.xsig, cmap = 'RdYlGn')
+            ax.set_title("Standard deviation on reconstructed x-position")
+            
+        elif type == "ysig":
+        
+            im = ax.imshow(self.ysig, cmap = 'RdYlGn')
+            ax.set_title("Standard deviation on reconstructed y-position")
+            
+            
         else:
             print("Analysis::plot BAD plot type selected. type=", type)
         
-        #cbar = ax.figure.colorbar(im, ax=ax)
-        #cbar.ax.set_ylabel('<rec-mean> (mm)', rotation=-90, va="bottom")    
+        ax.invert_yaxis()
+        cbar = ax.figure.colorbar(im, ax=ax)
+        cbar.ax.set_ylabel('<rec-mean> (mm)', rotation=-90, va="bottom")    
 
-    
-"""    
-    def plot(self, type, **kwargs):
-        Draw plots
-        range = kwargs.pop('range', None)
-        bins = kwargs.pop('bins', 100)
-        # cut on the fit quality
-        fcut = kwargs.pop('fcut', 99999.)
-
-        # seect well reconstructed events
-        df = self.df_analysis[((self.df_analysis.status == 1) & (self.df_analysis.fval < fcut))]
-        
-
-        if type == "xy":
-            # 2D histogram with y as a function of x
-            # superimposed is a outlien of a 3" PMT
-            plt.figure(figsize=(8, 8))
-
-            plt.hist2d(df.xr, df.yr, bins=(bins, bins), range=range)
-            ax = plt.gca()
-
-            mx_eff = -1
-            for rec in self.recs:
-                    for sipm in rec.sim.geo.get_sipms():
-                        if sipm.get_hit_probability() > mx_eff:
-                            mx_eff = sipm.get_hit_probability()
-
-            for sipm in self.geo1.get_sipms():
-                xs = sipm.get_location()
-                dx = sipm.get_hit_probability() / mx_eff * 5
-                sq = plt.Rectangle(xy=(xs[0] - dx / 2, xs[1] - dx / 2),
-                                   height=dx,
-                                   width=dx,
-                                   fill=False, color='red')
-                ax.add_artist(sq)
-
-            plt.xlabel('x (mm)', fontsize=18)
-            plt.ylabel('y (mm)', fontsize=18)
-
-            plt.savefig('sipm_vs_pmt.pdf')
-"""
             
             
