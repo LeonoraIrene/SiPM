@@ -19,7 +19,7 @@ inch = 25.4  # mm
 class GeoParameters:
     """Definition of the key parameters needed for the simulations"""
 
-    def __init__(self, z_plane, r_cylinder, r_sipm):
+    def __init__(self, z_plane, r_cylinder, r_sipm, wire_thickness, wire_spacing):
         # z of plane to intersect UV photons
         self.z_plane = z_plane  # mm
         # radius of cylinder to intersect UV photons
@@ -28,12 +28,21 @@ class GeoParameters:
         self.r_sipm = r_sipm  # mm
         self.a_sipm = np.pi * r_sipm ** 2
         self.sipms = []
+        self.wirethicc = wire_thickness
+        self.wirespacing = wire_spacing
 
     def add_sipm(self, sipm):
         self.sipms.append(sipm)
 
     def get_sipms(self):
         return self.sipms
+    
+    def get_wire_x(self):
+        wire_x = []
+        diameter_TPC = 45
+        for i in range(int(diameter_TPC/self.wirespacing)):
+            wire_x.append(-0.5*diameter_TPC+self.wirespacing*i)
+        return wire_x
 
     def __copy__(self):
         G = GeoParameters(self.z_plane, self.r_cylinder, self.r_sipm)
@@ -814,8 +823,8 @@ class Analysis:
         for rec in self.recs:
             self.xdif[i,j] = rec.df_rec.xr.mean()-rec.sim.get_x0()[0]
             self.ydif[i,j] = rec.df_rec.yr.mean()-rec.sim.get_x0()[1]
-            self.xgens[i] = rec.sim.get_x0()[0]
-            self.ygens[j] = rec.sim.get_x0()[1]
+            self.xgens[i] = round(rec.sim.get_x0()[0],1)
+            self.ygens[j] = round(rec.sim.get_x0()[1],1)
             self.xsig[i,j] = rec.df_rec.xr.sem()
             self.ysig[i,j] = rec.df_rec.yr.sem()
             j+=1
@@ -855,12 +864,12 @@ class Analysis:
             
         elif type == "xsig":
         
-            im = ax.imshow(self.xsig, cmap = 'RdYlGn')
+            im = ax.imshow(self.xsig, cmap = 'Reds')
             ax.set_title("Standard deviation on reconstructed x-position")
             
         elif type == "ysig":
         
-            im = ax.imshow(self.ysig, cmap = 'RdYlGn')
+            im = ax.imshow(self.ysig, cmap = 'Reds')
             ax.set_title("Standard deviation on reconstructed y-position")
             
             
