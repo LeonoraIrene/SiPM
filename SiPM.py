@@ -271,156 +271,6 @@ class Simulator:
 
 #-------------------------------------------------------------------------------------------------#
 
-class SimulatorLXe:
-    """Simulation of SiPM acceptance"""
-
-    def __init__(self, geo, uv_position, n_mc):
-        self.n_mc = n_mc
-
-        self.cost_range = [np.cos(0), np.cos(np.pi)]
-        self.phi_range = [0, 2 * np.pi]
-        # x0 of the UV photons
-        self.x0 = np.array(uv_position)
-        self.tdir = np.zeros(3)
-
-        self.h_cost, self.h_cost_bins = np.histogram([], bins=1000, range=[-1.1, 1.1])
-        self.h_cost_tmp = []
-        # in order to alllocate new memory locations for lists inside geometry
-        self.geo = deepcopy(geo)
-
-    def get_x0(self):
-        return self.x0
-
-    def set_nmc(self, n_mc):
-        self.n_mc = n_mc
-
-    def Print(self):
-        print("Number of SiPMs = ", len(self.geo.get_sipms()), " Generated hits from x=", self.get_x0())
-        n = 0
-        for pm in self.geo.get_sipms():
-            print("%2d  (x,y,z) = (%4.1f, %4.1f, %4.1f) p(hit) = %7.5f  qe = %5.3f" %
-                  (n, pm.get_location()[0], pm.get_location()[1], pm.get_location()[2], pm.get_hit_probability(),
-                   pm.get_qe()))
-            n = n + 1
-
-    def generate_events(self):
-        """ Generate events
-
-            Photon trajectories are intersected with:
-                1. a cylinder centered around (x,y) = (0,0) with radius r_cylinder. Currently only one
-                cylinder is alllowed
-                2. a plane a fixed height z=z_plane. Only one plane is alllowed.
-
-            NOTE: It is assumed that all SiPMs are either located on the surface of the cylinder or in the plane
-        """
-        for sipm in self.geo.get_sipms():
-            sipm.nhit = 0
-        # n_mc events are generated
-        for i in range(self.n_mc):
-            if i % 100000 == 0:
-                print("generated ", i, " events")
-                self.fill_hist()
-
-            # generate a single UV photon
-            self.generate_uv()
-
-            # intersect with plane
-            s_plane = self.intersect_with_plane()
-            # intersect with cylinder
-            s_cylinder = self.intersect_with_cylinder()
-
-            # coordinates of intersection with plane
-            self.xint_plane = self.x0 + np.multiply(s_plane, self.tdir)
-            # coordinates of intersection with cylinder
-            self.xint_cylinder = self.x0 + np.multiply(s_cylinder, self.tdir)
-
-            # check if the UV photon hits a SiPM
-            for sipm in self.geo.get_sipms():
-                self.hit_sipm(sipm)
-
-        # calculate the hit probabilities
-        for sipm in self.geo.get_sipms():
-            p = sipm.get_number_of_hits() / self.n_mc
-            # correct for the quantum efficiency
-            p = p * sipm.qe
-            sipm.set_hit_probability(p)
-
-        self.Print()
-        self.fill_hist()
-        print("event generation done")
-
-    def fill_hist(self):
-        # cos theta distribution
-        htemp, dummy = np.histogram(self.h_cost_tmp, bins=1000, range=[-1.1, 1.1])
-        self.h_cost = self.h_cost + htemp
-        self.h_cost_tmp = []
-
-    def generate_uv(self):
-        """ Generate a UV photon with random direction. The starting position
-            of the photon is always the same (within this class)
-        """
-        cost = np.random.uniform(self.cost_range[0], self.cost_range[1])
-        sint = np.sqrt(1 - cost ** 2)
-        phi = np.random.uniform(self.phi_range[0], self.phi_range[1])
-        self.tdir = [np.cos(phi) * sint, np.sin(phi) * sint, cost]
-        # histogramming
-        self.h_cost_tmp.append(self.tdir[2])
-
-    def hit_sipm(self, sipm):
-        """ Calculate whether a track hits a SiPM.
-            If the SiPM is hit the number of hits is incremented.
-        """
-        x = [0, 0, 0]
-        if sipm.get_type() == "plane":
-            x = self.xint_plane
-        elif sipm.get_type() == "cylinder":
-            x = self.xint_cylinder
-        else:
-            print("Simulator::hit_sipm ERROR wrong sipm type found. sipm.get_type() =", sipm.get_type())
-
-        dx = np.linalg.norm(x - sipm.get_location())
-        if dx < self.geo.r_sipm:
-            sipm.nhit = sipm.nhit + 1
-
-    def intersect_with_cylinder(self):
-        """ calculate intersect of UV photon with cylinder -
-            Return the positive path length s+ """
-        s = 0
-
-        A = self.tdir[0] ** 2 + self.tdir[1] ** 2
-        B = 2 * (self.x0[0] * self.tdir[0] + self.x0[1] * self.tdir[1])
-        C = self.x0[0] ** 2 + self.x0[1] ** 2 - self.geo.r_cylinder ** 2
-
-        # print("tdir = ",self.tdir, " |tdir|=",np.linalg.norm(self.tdir))
-        # print("x0   = ",self.x0, " |x0|=",np.linalg.norm(self.x0))
-        # print("Rcyl = ",self.geo.r_cylinder," A =",A," B=",B," C=",C," B2-4AC =",B**2-4*A*C)
-
-        discriminant = B ** 2 - 4 * A * C;
-
-        if discriminant >= 0:
-            s0 = (-B + np.sqrt(discriminant)) / (2 * A)
-            s1 = (-B - np.sqrt(discriminant)) / (2 * A)
-
-            if s0 > s1:
-                s = s0
-            else:
-                s = s1
-
-        return s
-
-    def intersect_with_plane(self):
-        """ calculate intersect of UV photon with pllane -
-            Return the positive path length s+ """
-        if np.linalg.norm(self.tdir) > 1e-10:
-            s = (self.geo.z_plane - self.x0[2]) / self.tdir[2]
-        else:
-            s = 0
-        # only positive directions
-        if s < 0:
-            s = 0
-        return s
-
-# -----------------------------------------------------------------------------------#
 class Reconstruction:
     def __init__(self, sim):
         self.sim = sim
@@ -814,14 +664,14 @@ class Analysis:
         #create numpy arrays to fill with data while looping over reconstructions
             #possibly make into one big np array:
                 #posities = np.zeros(hoeveel events , dtype=[('xmeans',np.float),('ygens',np.float)
-        self.xdif = np.zeros((self.xsize, self.ysize))
-        self.ydif = np.zeros((self.xsize, self.ysize))
-        self.rdif = np.zeros((self.xsize, self.ysize))
-        self.phidif = np.zeros((self.xsize, self.ysize))
-        self.xsig = np.zeros((self.xsize, self.ysize))
-        self.ysig = np.zeros((self.xsize, self.ysize))
-        self.rsig = np.zeros((self.xsize, self.ysize))
-        self.phisig = np.zeros((self.xsize, self.ysize))
+        self.xdif = np.zeros((self.ysize, self.xsize))
+        self.ydif = np.zeros((self.ysize, self.xsize))
+        self.rdif = np.zeros((self.ysize, self.xsize))
+        self.phidif = np.zeros((self.ysize, self.xsize))
+        self.xsig = np.zeros((self.ysize, self.xsize))
+        self.ysig = np.zeros((self.ysize, self.xsize))
+        self.rsig = np.zeros((self.ysize, self.xsize))
+        self.phisig = np.zeros((self.ysize, self.xsize))
         self.xgens = np.zeros((self.xsize))
         self.ygens = np.zeros((self.ysize))
 
@@ -832,26 +682,28 @@ class Analysis:
         for rec in self.recs:
             self.xgens[i] = round(rec.sim.get_x0()[0],1)
             self.ygens[j] = round(rec.sim.get_x0()[1],1)            
-            self.xdif[i,j] = rec.df_rec.xr.mean()-rec.sim.get_x0()[0]
-            self.ydif[i,j] = rec.df_rec.yr.mean()-rec.sim.get_x0()[1]
-            self.xsig[i,j] = rec.df_rec.xr.sem()
-            self.ysig[i,j] = rec.df_rec.yr.sem()            
-            self.rdif[i,j] = (rec.df_rec.xr.mean()**2+rec.df_rec.yr.mean()**2)**0.5-(rec.sim.get_x0()[0]**2+rec.sim.get_x0()[1]**2)**0.5
-            self.rsig[i,j] = (rec.df_rec.xr.sem()**2+rec.df_rec.yr.sem()**2)**0.5
+            self.xdif[j,i] = rec.df_rec.xr.mean()-rec.sim.get_x0()[0]
+            self.ydif[j,i] = rec.df_rec.yr.mean()-rec.sim.get_x0()[1]
+            self.xsig[j,i] = rec.df_rec.xr.sem()
+            self.ysig[j,i] = rec.df_rec.yr.sem()            
+            self.rdif[j,i] = (rec.df_rec.xr.mean()**2+rec.df_rec.yr.mean()**2)**0.5-(rec.sim.get_x0()[0]**2+rec.sim.get_x0()[1]**2)**0.5
+            self.rsig[j,i] = (rec.df_rec.xr.sem()**2+rec.df_rec.yr.sem()**2)**0.5
             if rec.df_rec.xr.mean()and rec.sim.get_x0()[0]!= 0:
-                self.phidif[i,j] = np.arctan(rec.df_rec.yr.mean()/rec.df_rec.xr.mean())-np.arctan(rec.sim.get_x0()[1]/rec.sim.get_x0()[0])   
+                self.phidif[j,i] = np.arctan(rec.df_rec.yr.mean()/rec.df_rec.xr.mean())-np.arctan(rec.sim.get_x0()[1]/rec.sim.get_x0()[0])   
             else:
-                self.phidif[i,j] = 0
+                self.phidif[j,i] = 0
             if rec.df_rec.xr.sem()!= 0:
-                self.phisig[i,j] = np.arctan(rec.df_rec.yr.sem()/rec.df_rec.xr.sem()) 
+                self.phisig[j,i] = np.arctan(rec.df_rec.yr.sem()/rec.df_rec.xr.sem()) 
             else:
-                self.phisig[i,j] = 0
+                self.phisig[j,i] = 0
+                
             
             j+=1
             if j == self.ysize:
                 i +=1
                 j = 0
-                
+        
+        
         
         return self.xgens, self.ygens, self.xdif, self.ydif, self.rdif, self.phidif, self.xsig, self.ysig, self.rsig, self.phisig
     
@@ -876,9 +728,13 @@ class Analysis:
         #plot, set bounds and title
         if type == "xdif":
 
-            bound_dif =  max(abs(self.xdif.max()), abs(self.xdif.min()), abs(self.ydif.max()), abs(self.ydif.min()), abs(self.rdif.max()), abs(self.rdif.min()))             
+            bound_dif =  max(abs(self.xdif.max()), abs(self.xdif.min()), abs(self.ydif.max()), abs(self.ydif.min()), abs(self.rdif.max()), abs(self.rdif.min()))  
             im = ax.imshow(self.xdif, cmap = 'Spectral', vmin=-bound_dif, vmax=bound_dif)
             ax.set_title("Reconstructed - generated x-position")
+            """for i in range(len(self.xgens)):
+                for j in range(len(self.ygens)):
+                    text = ax.text(i, j, round(self.xdif[j, i],1),
+                       ha="center", va="center", color="black")"""
             
         elif type == "ydif":
 
@@ -896,15 +752,14 @@ class Analysis:
 
             bound_dif = max(abs(self.phidif.max()), abs(self.phidif.min()))           
             im = ax.imshow(self.phidif, cmap = 'Spectral', vmin=-bound_dif, vmax=bound_dif)
-            ax.set_title("Reconstructed - generated phi-position")      
-            
+            ax.set_title("Reconstructed - generated phi-position")                
             
         elif type == "xsig":
         
             bound_sig = max(abs(self.xsig.max()), abs(self.ysig.max()), abs(self.rsig.max()))
             im = ax.imshow(self.xsig, cmap = 'Reds', vmin= 0, vmax=bound_sig)
             ax.set_title("Standard deviation on reconstructed x-position")
-            
+
         elif type == "ysig":
 
             bound_sig = max(abs(self.xsig.max()), abs(self.ysig.max()), abs(self.rsig.max()))
@@ -914,13 +769,13 @@ class Analysis:
         elif type == "rsig":
         
             bound_sig = max(abs(self.xsig.max()), abs(self.ysig.max()), abs(self.rsig.max()))
-            im = ax.imshow(self.xsig, cmap = 'Reds', vmin= 0, vmax=bound_sig)
-            ax.set_title("Standard deviation on reconstructed r-position")
+            im = ax.imshow(self.rsig, cmap = 'Reds', vmin= 0, vmax=bound_sig)
+            ax.set_title("Standard deviation on reconstructed r-position")     
             
         elif type == "phisig":
 
-            im = ax.imshow(self.ysig, cmap = 'Reds', vmin=0, vmax=self.phisig.max())
-            ax.set_title("Standard deviation on reconstructed phi-position")                            
+            im = ax.imshow(self.phisig, cmap = 'Reds', vmin=self.phisig.min(), vmax=self.phisig.max())
+            ax.set_title("Standard deviation on reconstructed phi-position") 
                             
         else:
             print("Analysis::plot BAD plot type selected. type=", type)
@@ -942,6 +797,7 @@ class Analysis:
             
             
     def plot(self, type, bins, range):
+        """this isn't really working yet, still need to understand how to feed this datatype to plt.hist"""
         
         if type == "dif":
             plt.figure(figsize=(7, 5))
