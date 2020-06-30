@@ -275,6 +275,14 @@ class Reconstruction:
     def __init__(self, sim):
         self.sim = sim
         self.geo = sim.geo
+        self.fix_rate0 = False
+        
+    def fix_parameter_CHI2(self, parameter, fix_value):
+        if parameter == "rate0":
+            self.fix_rate0 = True
+            self.n0 = fix_value
+        else:
+            print("Reconstruction::fix_parameter_CHI2 BAD parameter type selected. parameter=", parameter)
 
     def generate_hit(self, nuv):
         # generate a hit based on the simulated response for a give position
@@ -288,7 +296,7 @@ class Reconstruction:
 
         return 0
 
-    def reconstruct_position(self, method):
+    def reconstruct_position(self, method, **kwargs):
         self.rate0 = 0
         self.xrec = [0, 0, 0]
         self.status = 0
@@ -317,9 +325,11 @@ class Reconstruction:
                 print("Reconstruction::reconstruct_position() ERROR bad value of errordef:", errordef)
 
             self.lnlike = PosFit(self.geo.get_sipms(), method)
-            n0 = 1000
+            if self.fix_rate0 == False:
+                self.n0 = 1000
             m = Minuit(self.lnlike,
-                       rate0=n0,
+                       rate0=self.n0,
+                       fix_rate0=self.fix_rate0,
                        xpos=25.,
                        ypos=25.,
                        limit_rate0=(0, 1e7),
@@ -327,7 +337,7 @@ class Reconstruction:
                        limit_ypos=(-150, 150),
                        error_xpos=1.,
                        error_ypos=1.,
-                       error_rate0=np.sqrt(n0),
+                       error_rate0=np.sqrt(self.n0),
                        errordef=errordef,
                        print_level=0)
             m_status = m.migrad()
@@ -444,8 +454,8 @@ class Reconstruction:
         z = z[:-1, :-1]
         levels = MaxNLocator(nbins=nbins).tick_values(z.min(), z.max())
 
-        cmap = plt.get_cmap('PiYG')
-        norm = BoundaryNorm(levels, ncolors=cmap.N, clip=True)
+        cmap = plt.get_cmap('flag')
+        #norm = BoundaryNorm(levels, ncolors=cmap.N, clip=True)
 
         self.ax0 = self.fig.gca()
 
@@ -649,6 +659,8 @@ class PosFit:
 
 # -----------------------------------------------------------------------------------#
 class Analysis:  
+    """plot data over multiple locations"""
+    
     def __init__(self, recs, xsize, ysize):
         self.recs = recs
         self.rec1 = recs[0]
@@ -659,11 +671,10 @@ class Analysis:
         self.ysize = ysize
 
     def merge(self):
-        #store relevant data from reconstructions by looping over dataframes from each reconstruction and saving information in np arrays
+        """store relevant data from reconstructions by looping over dataframes from each reconstruction and saving information in np arrays"""
         
         #create numpy arrays to fill with data while looping over reconstructions
-            #possibly make into one big np array:
-                #posities = np.zeros(hoeveel events , dtype=[('xmeans',np.float),('ygens',np.float)
+               #possibly make into one big np array: posities = np.zeros(hoeveel events , dtype=[('xmeans',np.float),('ygens',np.float)
         self.xdif = np.zeros((self.ysize, self.xsize))
         self.ydif = np.zeros((self.ysize, self.xsize))
         self.rdif = np.zeros((self.ysize, self.xsize))
@@ -680,6 +691,7 @@ class Analysis:
         j=0
         #fill numpy arrays
         for rec in self.recs:
+            print(rec.sim.get_x0())
             self.xgens[i] = round(rec.sim.get_x0()[0],1)
             self.ygens[j] = round(rec.sim.get_x0()[1],1)            
             self.xdif[j,i] = rec.df_rec.xr.mean()-rec.sim.get_x0()[0]
@@ -696,25 +708,57 @@ class Analysis:
                 self.phisig[j,i] = np.arctan(rec.df_rec.yr.sem()/rec.df_rec.xr.sem()) 
             else:
                 self.phisig[j,i] = 0
-                
             
             j+=1
             if j == self.ysize:
                 i +=1
                 j = 0
         
-        
-        
         return self.xgens, self.ygens, self.xdif, self.ydif, self.rdif, self.phidif, self.xsig, self.ysig, self.rsig, self.phisig
     
-    def plot2d(self, type):
-        #plots two types of two dimensional 'heatmaps': difference between generated and reconstructed value and sigma of x,y,r and phi
+    
+    def plot2d(self, type, cmap):
+        #plots two types of two dimensional 'heatmaps': difference between generated and reconstructed value and sigma of x,y,r and phi; change any inputs here, actual plotting happens in function "plot2dgeneral"
         
-        """changes still to be made: 
-            -add sipm location on plot
-            -colour scale standard over all plots (for comparison)
-            """
-        #prepare axes 
+        if type == "xdif":
+
+            self.plot2dgeneral(data=self.xdif, type=type, title="Reconstructed - generated x-position", cbarlabel='<Rec-Gen> (mm)', cmap=cmap)
+            
+        elif type == "ydif":
+
+            self.plot2dgeneral(data=self.ydif, type=type, title="Reconstructed - generated y-position", cbarlabel='<Rec-Gen> (mm)', cmap=cmap)
+            
+        elif type == "rdif":
+
+            self.plot2dgeneral(data=self.rdif, type=type, title="Reconstructed - generated r-position", cbarlabel='<Rec-Gen> (mm)', cmap=cmap)
+            
+        elif type == "phidif":
+
+            self.plot2dgeneral(data=self.phidif, type=type, title="Reconstructed - generated phi-position", cbarlabel='<Rec-Gen> (radians)', cmap=cmap)
+            
+        elif type == "xsig":
+        
+            self.plot2dgeneral(data=self.xsig, type=type, title="Standard deviation on reconstructed x-position", cbarlabel='$\sigma$ on x (mm)', cmap=cmap)
+
+        elif type == "ysig":
+
+            self.plot2dgeneral(data=self.ysig, type=type, title="Standard deviation on reconstructed y-position", cbarlabel='$\sigma$ on y (mm)', cmap=cmap)
+                            
+        elif type == "rsig":
+        
+            self.plot2dgeneral(data=self.rsig, type=type, title="Standard deviation on reconstructed r-position", cbarlabel='$\sigma$ on r (mm)', cmap=cmap)   
+            
+        elif type == "phisig":
+
+            self.plot2dgeneral(data=self.phisig, type=type, title="Standard deviation on reconstructed phi-position", cbarlabel='$\sigma$ on phi (radians)', cmap=cmap)
+                            
+        else:
+            print("Analysis::plot BAD plot type selected. type=", type)
+     
+            
+    def plot2dgeneral(self, data, type, **kwargs):
+       
+        #create plot and axes
         fig, ax = plt.subplots()
         ax.set_xticks(np.arange(len(self.xgens)))
         ax.set_yticks(np.arange(len(self.ygens)))
@@ -724,61 +768,32 @@ class Analysis:
         ax.set_ylabel("generated y-position")
         plt.setp(ax.get_xticklabels(), rotation=90, ha="right",
          rotation_mode="anchor")
-      
-        #plot, set bounds and title
-        if type == "xdif":
-
-            bound_dif =  max(abs(self.xdif.max()), abs(self.xdif.min()), abs(self.ydif.max()), abs(self.ydif.min()), abs(self.rdif.max()), abs(self.rdif.min()))  
-            im = ax.imshow(self.xdif, cmap = 'Spectral', vmin=-bound_dif, vmax=bound_dif)
-            ax.set_title("Reconstructed - generated x-position")
-            """for i in range(len(self.xgens)):
-                for j in range(len(self.ygens)):
-                    text = ax.text(i, j, round(self.xdif[j, i],1),
-                       ha="center", va="center", color="black")"""
-            
-        elif type == "ydif":
-
-            bound_dif =  max(abs(self.xdif.max()), abs(self.xdif.min()), abs(self.ydif.max()), abs(self.ydif.min()), abs(self.rdif.max()), abs(self.rdif.min()))            
-            im = ax.imshow(self.ydif, cmap = 'Spectral', vmin=-bound_dif, vmax=bound_dif)
-            ax.set_title("Reconstructed - generated y-position")
-            
-        elif type == "rdif":
-
-            bound_dif = max(abs(self.xdif.max()), abs(self.xdif.min()), abs(self.ydif.max()), abs(self.ydif.min()), abs(self.rdif.max()), abs(self.rdif.min()))            
-            im = ax.imshow(self.rdif, cmap = 'Spectral', vmin=-bound_dif, vmax=bound_dif)
-            ax.set_title("Reconstructed - generated r-position")
-            
-        elif type == "phidif":
-
-            bound_dif = max(abs(self.phidif.max()), abs(self.phidif.min()))           
-            im = ax.imshow(self.phidif, cmap = 'Spectral', vmin=-bound_dif, vmax=bound_dif)
-            ax.set_title("Reconstructed - generated phi-position")                
-            
-        elif type == "xsig":
         
-            bound_sig = max(abs(self.xsig.max()), abs(self.ysig.max()), abs(self.rsig.max()))
-            im = ax.imshow(self.xsig, cmap = 'Reds', vmin= 0, vmax=bound_sig)
-            ax.set_title("Standard deviation on reconstructed x-position")
-
-        elif type == "ysig":
-
-            bound_sig = max(abs(self.xsig.max()), abs(self.ysig.max()), abs(self.rsig.max()))
-            im = ax.imshow(self.ysig, cmap = 'Reds', vmin= 0, vmax=bound_sig)
-            ax.set_title("Standard deviation on reconstructed y-position")
-                            
-        elif type == "rsig":
+        #kwargs
+        title = kwargs.pop('title', None)
+        cbarlabel = kwargs.pop('cbarlabel', None)
+        cmap = kwargs.pop('cmap', 'Blues')
         
-            bound_sig = max(abs(self.xsig.max()), abs(self.ysig.max()), abs(self.rsig.max()))
-            im = ax.imshow(self.rsig, cmap = 'Reds', vmin= 0, vmax=bound_sig)
-            ax.set_title("Standard deviation on reconstructed r-position")     
+        #set colourbar boundaries
+        if type == "xdif" or "ydif" or "rdif":
+            bound_upper =  max(abs(self.xdif.max()), abs(self.xdif.min()), abs(self.ydif.max()), abs(self.ydif.min()), abs(self.rdif.max()), abs(self.rdif.min())) 
+            bound_lower = -bound_upper
             
-        elif type == "phisig":
-
-            im = ax.imshow(self.phisig, cmap = 'Reds', vmin=self.phisig.min(), vmax=self.phisig.max())
-            ax.set_title("Standard deviation on reconstructed phi-position") 
-                            
-        else:
-            print("Analysis::plot BAD plot type selected. type=", type)
+        elif type == "xsig" or "ysig" or "rsig":
+            bound_upper = max(abs(self.xsig.max()), abs(self.ysig.max()), abs(self.rsig.max()))
+            bound_lower = 0
+            
+        elif type =="phidif":
+            bound_upper = max(abs(self.phidif.max()), abs(self.phidif.min()))
+            bound_lower = 0
+            
+        elif type =="phisig":
+            bound_upper = max(abs(self.phisig.max()), abs(self.phisig.min()))
+            bound_lower = 0
+            
+        #fill plot
+        im = ax.imshow(data, cmap = cmap, vmin=bound_lower, vmax=bound_upper)
+        ax.set_title(title)
         
         #create colourbar
         cbar = ax.figure.colorbar(im, ax=ax)
@@ -786,50 +801,57 @@ class Analysis:
         ax.invert_yaxis()
         
         #set colourbar label
-        if type == "xdif" or "ydif" or "rdif":
-            cbar.ax.set_ylabel('<Rec-Gen> (mm)', rotation=-90, va="bottom")  
-        elif type == "phidif":
-            cbar.ax.set_ylabel('<Rec-Gen> (radians)', rotation=-90, va="bottom")  
-        elif type == "xsig" or "ysig" or "rsig":
-            cbar.ax.set_ylabel('sigma (mm)', rotation=-90, va="bottom")  
-        elif type == "phisig":
-            cbar.ax.set_ylabel('sigma (radians)', rotation=-90, va="bottom")  
+        cbar.ax.set_ylabel(cbarlabel, rotation=-90, va="bottom")       
             
             
     def plot(self, type, bins, range):
-        """this isn't really working yet, still need to understand how to feed this datatype to plt.hist"""
+        #Plot 1d histograms of <Rec-Gen> and sigma for x,y,r and phi, to compare averages and spread
         
-        if type == "dif":
-            plt.figure(figsize=(7, 5))
-
-            # histograms with x and y positions
-            plt.hist(self.xdif, bins=bins, range=range)
-            plt.hist(self.ydif, bins=bins, range=range, alpha =0.5)
-            plt.hist(self.rdif, bins=bins, range=range, alpha =0.5)
-            plt.xlabel('<Rec-Gen> (mm)')
-            plt.legend(['x', 'y', 'r'])
+        if type == "xydif":
             
-        if type == "sig":
-            plt.figure(figsize=(7, 5))
-            plt.hist(self.xsig, bins=bins, range = range)
-            plt.hist(self.ysig, bins=bins, range = range, alpha =0.5)
-            plt.hist(self.rsig, bins=bins, range = range, alpha =0.5)
-            plt.xlabel('sigma (mm)')
-            plt.legend(['x', 'y', 'r'])
+            self.plotgeneral(bins, range, data_1=self.xdif.flatten(), data_2=self.ydif.flatten(), title='Histogram of <Rec-Gen> for x,y', xlabel = '<Rec-Gen> (mm)', legend = ['x', 'y'])
             
-        if type == "phidif":
-            plt.figure(figsize=(7, 5))
-            plt.hist(self.phidif, bins=bins, range=range)
-            plt.xlabel('<Rec-Gen> (radians)')
-            plt.legend(['phi'])
+        elif type == "xysig":
             
-        if type == "phisig":
-            plt.figure(figsize=(7, 5))
-            plt.hist(self.phisig, bins=bins, range = range)
-            plt.xlabel('sigma (radians)')
-            plt.legend(['phi'])
+            self.plotgeneral(bins, range, data_1=self.xsig.flatten(), data_2=self.ysig.flatten(), title='Histogram of standard dev. of x,y', xlabel = 'sigma (mm)', legend = ['x', 'y'])
+            
+        elif type == "rdif":
+            
+            self.plotgeneral(bins, range, data_1=self.rdif.flatten(), title='Histogram of <Rec-Gen> for r', xlabel = '<Rec-Gen> (mm)', legend = ['r'])
+            
+        elif type == "rsig":
+            
+            self.plotgeneral(bins, range, data_1=self.rsig.flatten(), title='Histogram of standard dev. of r', xlabel = 'sigma (mm)', legend = ['r'])
+            
+        elif type == "phidif":
+            
+            self.plotgeneral(bins, range, data_1=self.phidif.flatten(), title='Histogram of <Rec-Gen> for phi', xlabel = '<Rec-Gen> (radians)', legend = ['phi'])
+            
+        elif type == "phisig":
+            
+            self.plotgeneral(bins, range, data_1=self.phisig.flatten(), title='Histogram of standard dev. for phi', xlabel = 'sigma (radians)', legend = ['phi'])
+            
+        else:
+            print("Analysis::plot BAD plot type selected. type=", type)
         
         return plt.gca()
                 
-            
+    def plotgeneral(self, bins, range, data_1, **kwargs):
+        #does plotting for plot function
+        
+        plt.figure(figsize=(7, 5))
+        
+        plt.hist(data_1, bins=bins, range=range)
+        data_2 = kwargs.pop('data_2', False)
+        if type(data_2) !=  bool:
+            plt.hist(data_2, bins=bins, range=range, alpha=0.5)
+                 
+        title = kwargs.pop('title', None)
+        xlabel = kwargs.pop('xlabel', None)
+        legend = kwargs.pop('legend', None)
+        plt.title(title)
+        plt.xlabel(xlabel)
+        plt.legend(legend)
+                 
+        return plt.gca()
             
