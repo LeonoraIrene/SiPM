@@ -691,7 +691,6 @@ class Analysis:
         j=0
         #fill numpy arrays
         for rec in self.recs:
-            print(rec.sim.get_x0())
             self.xgens[i] = round(rec.sim.get_x0()[0],1)
             self.ygens[j] = round(rec.sim.get_x0()[1],1)            
             self.xdif[j,i] = rec.df_rec.xr.mean()-rec.sim.get_x0()[0]
@@ -720,8 +719,9 @@ class Analysis:
     def plot2d(self, type, cmap):
         #plots two types of two dimensional 'heatmaps': difference between generated and reconstructed value and sigma of x,y,r and phi; change any inputs here, actual plotting happens in function "plot2dgeneral"
         
+        
         if type == "xdif":
-
+            
             self.plot2dgeneral(data=self.xdif, type=type, title="Reconstructed - generated x-position", cbarlabel='<Rec-Gen> (mm)', cmap=cmap)
             
         elif type == "ydif":
@@ -774,18 +774,19 @@ class Analysis:
         cbarlabel = kwargs.pop('cbarlabel', None)
         cmap = kwargs.pop('cmap', 'Blues')
         
+        
         #set colourbar boundaries
-        if type == "xdif" or "ydif" or "rdif":
+        if type == "xdif" or type == "ydif" or type == "rdif":
             bound_upper =  max(abs(self.xdif.max()), abs(self.xdif.min()), abs(self.ydif.max()), abs(self.ydif.min()), abs(self.rdif.max()), abs(self.rdif.min())) 
             bound_lower = -bound_upper
             
-        elif type == "xsig" or "ysig" or "rsig":
+        elif type == "xsig" or type == "ysig" or type == "rsig":
             bound_upper = max(abs(self.xsig.max()), abs(self.ysig.max()), abs(self.rsig.max()))
             bound_lower = 0
             
         elif type =="phidif":
             bound_upper = max(abs(self.phidif.max()), abs(self.phidif.min()))
-            bound_lower = 0
+            bound_lower = -bound_upper
             
         elif type =="phisig":
             bound_upper = max(abs(self.phisig.max()), abs(self.phisig.min()))
